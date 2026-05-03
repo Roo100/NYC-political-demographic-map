@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!-- GitHub Pages Prepared: open this file as index.html from the repository root. -->
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NYC Five Boroughs — Political Affiliation, Income, Education, and Race</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: #f4f6f8;
+    color: #1f2933;
+    font-family: 'Century Gothic', Century, 'Apple Gothic', Arial, Helvetica, sans-serif;
+  }
+  .container {
+    max-width: 1180px;
+    margin: 0 auto;
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 26px;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+  }
+  h1 {
+    margin: 0 0 6px;
+    color: #1F4E79;
+    font-size: 24px;
+    line-height: 1.2;
+  }
+  .subtitle {
+    margin: 0 0 18px;
+    color: #4b5563;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  .ctrl-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+    align-items: center;
+  }
+  .ctrl-label {
+    font-size: 12px;
+    color: #475569;
+    font-weight: 700;
+    margin-right: 2px;
+  }
+  .ctrl-btn {
+    padding: 7px 13px;
+    font-size: 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    background: #fff;
+    color: #1f2933;
+    cursor: pointer;
+    transition: all .15s ease;
+  }
+  .ctrl-btn:hover { background: #eef2f7; }
+  .ctrl-btn.active {
+    background: #1F4E79;
+    color: #fff;
+    border-color: #1F4E79;
+  }
+  .status {
+    border-radius: 10px;
+    padding: 11px 13px;
+    margin-bottom: 14px;
+    font-size: 13px;
+    line-height: 1.45;
+    border: 1px solid #d5dbe1;
+    background: #f8fafc;
+    color: #334155;
+  }
+  .status.ok {
+    border-color: #b7dfc1;
+    background: #f3fbf5;
+    color: #1c6b3e;
+  }
+  .status.error {
+    border-color: #efb4b4;
+    background: #fff5f5;
+    color: #8b1e1e;
+  }
+  .main-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.9fr);
+    gap: 18px;
+    align-items: start;
+  }
+  #map-wrap {
+    position: relative;
+    width: 100%;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    overflow: hidden;
+    background: #cde7f7;
+  }
+  #map-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    min-height: 520px;
+  }
+  .borough-path {
+    cursor: pointer;
+    stroke: #ffffff;
+    stroke-width: 1.2;
+    vector-effect: non-scaling-stroke;
+  }
+  .borough-path:hover {
+    stroke: #111827;
+    stroke-width: 2.3;
+  }
+  .borough-label {
+    pointer-events: none;
+    font-weight: 700;
+    font-size: 13px;
+    fill: #0f172a;
+    paint-order: stroke;
+    stroke: rgba(255,255,255,0.88);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+  }
+  .bubble {
+    cursor: pointer;
+    fill: rgba(31,78,121,0.58);
+    stroke: #123a5c;
+    stroke-width: 1.5;
+  }
+  .tooltip {
+    position: fixed;
+    display: none;
+    max-width: 360px;
+    background: #fff;
+    border: 1px solid #d8dee4;
+    border-radius: 10px;
+    padding: 12px 14px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.15);
+    pointer-events: none;
+    z-index: 999;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .tt-title { font-size: 14px; font-weight: 800; color:#1F4E79; margin-bottom: 4px; }
+  .tt-sub { color:#475569; margin-bottom: 8px; }
+  .tt-row { display:flex; justify-content:space-between; gap:16px; border-top:1px solid #eef2f7; padding-top:5px; margin-top:5px; }
+  .tt-val { font-weight:700; color:#111827; text-align:right; }
+  .panel {
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    background: #fbfcfe;
+    padding: 15px;
+  }
+  .panel h2 {
+    margin: 0 0 10px;
+    color: #1F4E79;
+    font-size: 17px;
+  }
+  .legend {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: #475569;
+    margin: 10px 0 0;
+  }
+  .legend-swatch {
+    width: 18px;
+    height: 12px;
+    border-radius: 2px;
+    border: 1px solid rgba(0,0,0,0.06);
+  }
+  select {
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    padding: 7px 10px;
+    font-size: 12px;
+    background: #fff;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 6px;
+    border-bottom: 1px solid #e5e7eb;
+    vertical-align: top;
+  }
+  th {
+    color: #475569;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .02em;
+  }
+  .pill {
+    display:inline-block;
+    padding:3px 7px;
+    border-radius:999px;
+    font-size:11px;
+    font-weight:700;
+  }
+  .pill-politics { background:#eaf2fb; color:#1F4E79; }
+  .party-dot {
+    display:inline-block;
+    width:10px;
+    height:10px;
+    border-radius:50%;
+    margin-right:5px;
+    vertical-align:middle;
+  }
+  .pill-income { background:#eef7ed; color:#1D6B3E; }
+  .pill-race { background:#f3edf9; color:#5b2a86; }
+  .pill-edu { background:#fff3df; color:#9a5b00; }
+  .note {
+    margin-top: 14px;
+    font-size: 12px;
+    color: #64748b;
+    line-height: 1.5;
+  }
+  @media (max-width: 900px) {
+    .main-grid { grid-template-columns: 1fr; }
+    #map-svg { min-height: 430px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>NYC Five Boroughs: Political Affiliation, Income, Education, and Race</h1>
+  <p class="subtitle">
+    This interactive map compares borough-level voter party enrollment with income, educational attainment, and racial/ethnic composition.
+    In political affiliation mode, the map uses the selected party’s color scale: Democratic = blue, Republican = red,
+    Conservative = purple, Working Families = green, unaffiliated/blank = gray, and other parties = gold.
+    Boroughs are matched to counties: Bronx, Kings/Brooklyn, New York/Manhattan, Queens, and Richmond/Staten Island.
+  </p>
+
+  <div id="status" class="status">Loading NYC borough boundaries, voter enrollment, and Census demographic data…</div>
+
+  <div class="ctrl-bar">
+    <span class="ctrl-label">Layer</span>
+    <button class="ctrl-btn active" id="btn-politics" onclick="setMode('politics')">Political affiliation</button>
+    <button class="ctrl-btn" id="btn-income" onclick="setMode('income')">Income</button>
+    <button class="ctrl-btn" id="btn-race" onclick="setMode('race')">Race/ethnicity</button>
+    <button class="ctrl-btn" id="btn-education" onclick="setMode('education')">Education</button>
+
+    <select id="partySelect" onchange="setParty(this.value)">
+      <option value="DEM">Democratic</option>
+      <option value="REP">Republican</option>
+      <option value="CON">Conservative</option>
+      <option value="WOR">Working Families</option>
+      <option value="BLANK">Unaffiliated / blank</option>
+      <option value="OTH">Other parties</option>
+    </select>
+
+    <select id="raceSelect" onchange="setRaceGroup(this.value)" disabled>
+      <option value="Black or African American alone, not Hispanic">Black alone, not Hispanic</option>
+      <option value="Hispanic or Latino">Hispanic or Latino</option>
+      <option value="White alone, not Hispanic">White alone, not Hispanic</option>
+      <option value="Asian alone, not Hispanic">Asian alone, not Hispanic</option>
+      <option value="Two or more races, not Hispanic">Two or more races, not Hispanic</option>
+      <option value="Some other race alone, not Hispanic">Some other race alone, not Hispanic</option>
+      <option value="American Indian/Alaska Native alone, not Hispanic">AIAN alone, not Hispanic</option>
+      <option value="Native Hawaiian/Pacific Islander alone, not Hispanic">NHPI alone, not Hispanic</option>
+    </select>
+
+    <select id="educationSelect" onchange="setEducationGroup(this.value)" disabled>
+      <option value="Bachelor's degree or higher">Bachelor's degree or higher</option>
+      <option value="Graduate or professional degree">Graduate or professional degree</option>
+      <option value="High school graduate or higher">High school graduate or higher</option>
+      <option value="Less than high school diploma">Less than high school diploma</option>
+      <option value="Some college or associate's degree">Some college or associate's degree</option>
+      <option value="Bachelor's degree">Bachelor's degree</option>
+    </select>
+
+    <span class="ctrl-label" style="margin-left:8px;">Map type</span>
+    <button class="ctrl-btn active" id="btn-choro" onclick="setMapType('choropleth')">Choropleth</button>
+    <button class="ctrl-btn" id="btn-bubble" onclick="setMapType('bubble')">Bubble</button>
+  </div>
+
+  <div class="main-grid">
+    <div>
+      <div id="map-wrap">
+        <svg id="map-svg" viewBox="0 0 760 560" preserveAspectRatio="xMidYMid meet" aria-label="Interactive political and demographic map of New York City boroughs"></svg>
+      </div>
+      <div class="legend" id="legend"></div>
+      <p class="note">
+        Hover over each borough to see party enrollment, income, race/ethnicity, and education context together.
+      </p>
+    </div>
+
+    <div class="panel">
+      <h2 id="panelTitle">Borough ranking</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Borough</th>
+            <th>Context</th>
+            <th id="valueHeader">Value</th>
+          </tr>
+        </thead>
+        <tbody id="rankBody">
+          <tr><td colspan="3">Loading…</td></tr>
+        </tbody>
+      </table>
+      <p class="note">
+        Political affiliation is measured as voter party enrollment by county, not vote choice or ideology. Census demographic indicators are county/borough-level context.
+      </p>
+      <p class="note">
+        Data sources: NYC Board of Elections/NYS Board of Elections voter enrollment; NYC Open Data borough boundaries; U.S. Census Bureau ACS 5-Year Tables B19013, B03002, and B15003.
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const BOROUGHS = ['Bronx','Brooklyn','Manhattan','Queens','Staten Island'];
+const COUNTY_TO_BORO = {'Bronx':'Bronx','Kings':'Brooklyn','New York':'Manhattan','Queens':'Queens','Richmond':'Staten Island'};
+const ALIASES = {
+  'the bronx': 'Bronx', 'bronx': 'Bronx',
+  'brooklyn': 'Brooklyn', 'kings': 'Brooklyn',
+  'manhattan': 'Manhattan', 'new york': 'Manhattan',
+  'queens': 'Queens',
+  'staten island': 'Staten Island', 'richmond': 'Staten Island'
+};
+const BORO_CODES = {'1':'Manhattan','2':'Bronx','3':'Brooklyn','4':'Queens','5':'Staten Island'};
+const PARTY_LABELS = {
+  DEM:'Democratic', REP:'Republican', CON:'Conservative', WOR:'Working Families', BLANK:'Unaffiliated / blank', OTH:'Other parties'
+};
+const DEFAULT_COLORS = ['#E6F1FB','#B5D4F4','#85B7EB','#378ADD','#185FA5','#0C447C'];
+const PARTY_COLORS = {
+  DEM: '#1F5AA6',
+  REP: '#C00000',
+  CON: '#6A1B9A',
+  WOR: '#1D6B3E',
+  BLANK: '#737373',
+  OTH: '#B8860B'
+};
+const PARTY_PALETTES = {
+  DEM: ['#E6F1FB','#B5D4F4','#85B7EB','#378ADD','#1F5AA6','#0B3D75'],
+  REP: ['#FDECEC','#F6B8B8','#EF8585','#E14D4D','#C00000','#7A0000'],
+  CON: ['#F3EAF9','#D9BFEA','#BD91D9','#9B5CC2','#6A1B9A','#42105F'],
+  WOR: ['#EAF7EF','#BFE5CB','#8ED1A4','#58B77A','#1D6B3E','#0F3E25'],
+  BLANK: ['#F1F1F1','#D8D8D8','#BEBEBE','#9E9E9E','#737373','#4A4A4A'],
+  OTH: ['#FFF5D9','#F8DD8A','#E9BF45','#D19A18','#B8860B','#7A5707']
+};
+
+let mode = 'politics';
+let mapType = 'choropleth';
+let selectedParty = 'DEM';
+let selectedRaceGroup = 'Black or African American alone, not Hispanic';
+let selectedEducationGroup = "Bachelor's degree or higher";
+
+let geoFeatures = [];
+let politicsData = {};
+let politicsSource = '2026 State Enrollment Statistics';
+let incomeData = {};
+let incomeSourceYear = '2024 ACS 5-Year';
+let raceData = {};
+let raceSourceYear = '2024 ACS 5-Year';
+let educationData = {};
+let educationSourceYear = '2024 ACS 5-Year';
+
+const svg = d3.select('#map-svg');
+const tooltip = document.getElementById('tooltip');
+const statusEl = document.getElementById('status');
+const rankBody = document.getElementById('rankBody');
+const legendEl = document.getElementById('legend');
+const partySelect = document.getElementById('partySelect');
+const raceSelect = document.getElementById('raceSelect');
+const educationSelect = document.getElementById('educationSelect');
+
+const width = 760, height = 560;
+const projection = d3.geoMercator();
+const path = d3.geoPath().projection(projection);
+
+function normalizeBoro(value) {
+  if (value == null) return null;
+  const raw = String(value).trim();
+  if (BORO_CODES[raw]) return BORO_CODES[raw];
+  return ALIASES[raw.toLowerCase()] || raw;
+}
+function getBoroName(feature) {
+  const p = feature.properties || {};
+  const candidates = [p.boro_name, p.BoroName, p.boroname, p.BORONAME, p.BORO_NAME, p.name, p.NAME, p.county, p.COUNTY, p.boro_code, p.BoroCode, p.boro];
+  for (const c of candidates) {
+    const norm = normalizeBoro(c);
+    if (BOROUGHS.includes(norm)) return norm;
+  }
+  return null;
+}
+function fmt(n) { return Number(n || 0).toLocaleString(); }
+function pct(n) { return (Number(n || 0) * 100).toFixed(1) + '%'; }
+function fmtMoney(n) { const val = Number(n || 0); return val ? '$' + val.toLocaleString() : 'No data'; }
+function incomeTier(n) {
+  const val = Number(n || 0);
+  if (!val) return 'No income data';
+  if (val < 60000) return 'Lower income';
+  if (val < 85000) return 'Moderate income';
+  if (val < 110000) return 'Higher income';
+  return 'Highest income';
+}
+function escapeHtml(str) {
+  return String(str ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#039;");
+}
+
+function fallbackPolitics() {
+  politicsSource = 'embedded fallback estimate; replace by live 2026 enrollment if workbook loads';
+  politicsData = {
+    'Bronx': {DEM:527000, REP:59000, CON:4200, WOR:7200, BLANK:236000, OTH:18000, TOTAL:851400},
+    'Brooklyn': {DEM:1065000, REP:145000, CON:12200, WOR:17800, BLANK:514000, OTH:38000, TOTAL:1792000},
+    'Manhattan': {DEM:746000, REP:101000, CON:6000, WOR:9800, BLANK:331000, OTH:24000, TOTAL:1217800},
+    'Queens': {DEM:836000, REP:188000, CON:14200, WOR:9100, BLANK:473000, OTH:33000, TOTAL:1553300},
+    'Staten Island': {DEM:150000, REP:126000, CON:8500, WOR:1400, BLANK:88000, OTH:6100, TOTAL:380000}
+  };
+}
+function parseNumber(v) {
+  if (v == null) return 0;
+  if (typeof v === 'number') return v;
+  return Number(String(v).replace(/,/g,'').trim()) || 0;
+}
+function normalizeHeader(x) {
+  return String(x || '').trim().toUpperCase().replace(/\s+/g,' ');
+}
+async function fetchPoliticsData() {
+  const url = 'https://www.vote.nyc/sites/default/files/pdf/vote/2026/county_feb26.xlsx';
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Enrollment workbook HTTP ' + res.status);
+    const ab = await res.arrayBuffer();
+    const wb = XLSX.read(ab, { type: 'array' });
+    let found = {};
+
+    for (const sheetName of wb.SheetNames) {
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i].map(normalizeHeader);
+        const countyIdx = row.findIndex(x => x === 'COUNTY');
+        const statusIdx = row.findIndex(x => x === 'STATUS');
+        const demIdx = row.findIndex(x => x === 'DEM' || x === 'DEMOCRATIC');
+        const repIdx = row.findIndex(x => x === 'REP' || x === 'REPUBLICAN');
+        const conIdx = row.findIndex(x => x === 'CON' || x === 'CONSERVATIVE');
+        const worIdx = row.findIndex(x => x === 'WOR' || x === 'WORKING FAMILIES');
+        const othIdx = row.findIndex(x => x === 'OTH' || x === 'OTHER' || x === 'OTHER PARTIES');
+        const blankIdx = row.findIndex(x => x === 'BLANK' || x === 'NO PARTY' || x === 'UNAFFILIATED');
+        const totalIdx = row.findIndex(x => x === 'TOTAL');
+
+        if (countyIdx < 0 || demIdx < 0 || repIdx < 0 || totalIdx < 0) continue;
+
+        for (let j = i + 1; j < Math.min(rows.length, i + 120); j++) {
+          const r = rows[j];
+          const countyRaw = String(r[countyIdx] || '').trim();
+          const county = Object.keys(COUNTY_TO_BORO).find(c => countyRaw.toLowerCase() === c.toLowerCase());
+          if (!county) continue;
+
+          const status = statusIdx >= 0 ? String(r[statusIdx] || '').trim().toLowerCase() : 'total';
+          if (status && status !== 'total') continue;
+
+          const boro = COUNTY_TO_BORO[county];
+          const dem = parseNumber(r[demIdx]);
+          const rep = parseNumber(r[repIdx]);
+          const con = conIdx >= 0 ? parseNumber(r[conIdx]) : 0;
+          const wor = worIdx >= 0 ? parseNumber(r[worIdx]) : 0;
+          const blank = blankIdx >= 0 ? parseNumber(r[blankIdx]) : 0;
+          const total = parseNumber(r[totalIdx]);
+          let oth = othIdx >= 0 ? parseNumber(r[othIdx]) : 0;
+          if (!oth && total) oth = Math.max(0, total - dem - rep - con - wor - blank);
+          found[boro] = {DEM:dem, REP:rep, CON:con, WOR:wor, BLANK:blank, OTH:oth, TOTAL:total || (dem+rep+con+wor+blank+oth)};
+        }
+      }
+    }
+
+    if (BOROUGHS.every(b => found[b] && found[b].TOTAL)) {
+      politicsData = found;
+      politicsSource = '2026 State Enrollment Statistics workbook';
+      return;
+    }
+    throw new Error('Could not identify the NYC county total rows in workbook.');
+  } catch (err) {
+    console.warn('Using fallback politics data:', err);
+    fallbackPolitics();
+  }
+}
+function getDominantParty(borough) {
+  const p = politicsData[borough] || {};
+  const entries = ['DEM','REP','CON','WOR','BLANK','OTH'].map(k => [k, p[k] || 0]).sort((a,b) => b[1]-a[1]);
+  const top = entries[0] || ['No data',0];
+  return { party: top[0], count: top[1], share: p.TOTAL ? top[1] / p.TOTAL : 0 };
+}
+function getPoliticsMetric(borough) {
+  const p = politicsData[borough] || {};
+  const count = p[selectedParty] || 0;
+  const total = p.TOTAL || 0;
+  const dominant = getDominantParty(borough);
+  return {
+    borough, value: total ? count / total : 0,
+    party: selectedParty, partyCount: count, partyShare: total ? count / total : 0,
+    dominantParty: dominant.party, dominantPartyShare: dominant.share,
+    totalEnrollment: total,
+    income: incomeData[borough] || 0,
+    raceShare: raceData[borough]?.[selectedRaceGroup]?.share || 0,
+    raceCount: raceData[borough]?.[selectedRaceGroup]?.count || 0,
+    educationShare: educationData[borough]?.[selectedEducationGroup]?.share || 0,
+    educationCount: educationData[borough]?.[selectedEducationGroup]?.count || 0
+  };
+}
+function getIncomeMetric(borough) {
+  const m = getPoliticsMetric(borough);
+  m.value = m.income || 0;
+  return m;
+}
+function getRaceMetric(borough) {
+  const m = getPoliticsMetric(borough);
+  m.value = m.raceShare || 0;
+  return m;
+}
+function getEducationMetric(borough) {
+  const m = getPoliticsMetric(borough);
+  m.value = m.educationShare || 0;
+  return m;
+}
+function getMetric(borough) {
+  if (mode === 'income') return getIncomeMetric(borough);
+  if (mode === 'race') return getRaceMetric(borough);
+  if (mode === 'education') return getEducationMetric(borough);
+  return getPoliticsMetric(borough);
+}
+function getAllMetrics() { return BOROUGHS.map(getMetric); }
+
+function getPalette() {
+  if (mode === 'politics') return PARTY_PALETTES[selectedParty] || DEFAULT_COLORS;
+  if (mode === 'income') return ['#EEF7ED','#CFE8D1','#A5D4A9','#72B878','#3F9147','#1D6B3E'];
+  if (mode === 'race') return ['#F3EDF9','#DFC9F0','#C59CE2','#A96ED2','#8545B5','#5B2A86'];
+  if (mode === 'education') return ['#FFF3DF','#F8D89B','#EEB955','#D9941B','#B56F00','#7C4A00'];
+  return DEFAULT_COLORS;
+}
+function colorScale() {
+  const vals = getAllMetrics().map(d => d.value);
+  const max = d3.max(vals) || 1, min = d3.min(vals) || 0;
+  const palette = getPalette();
+  if (max === min) return () => palette[3];
+  return d3.scaleQuantize().domain([min, max]).range(palette);
+}
+function radiusScale() {
+  const vals = getAllMetrics().map(d => d.value);
+  const max = d3.max(vals) || 1;
+  return d3.scaleSqrt().domain([0, max]).range([6, 44]);
+}
+function getLargestRaceGroup(borough) {
+  const obj = raceData[borough] || {};
+  const entries = Object.entries(obj).sort((a,b) => (b[1].share || 0) - (a[1].share || 0));
+  if (!entries.length) return { group: 'No race data', count: 0, share: 0 };
+  return { group: entries[0][0], count: entries[0][1].count, share: entries[0][1].share };
+}
+function getRaceRows(borough) {
+  return Object.entries(raceData[borough] || {}).map(([group,d]) => ({group,count:d.count||0,share:d.share||0})).sort((a,b)=>b.share-a.share);
+}
+function getEducationRows(borough) {
+  return Object.entries(educationData[borough] || {}).map(([group,d]) => ({group,count:d.count||0,share:d.share||0})).sort((a,b)=>b.share-a.share);
+}
+function getPartyRows(borough) {
+  const p = politicsData[borough] || {};
+  return ['DEM','REP','CON','WOR','BLANK','OTH']
+    .map(k => ({party:k, label:PARTY_LABELS[k], count:p[k]||0, share:p.TOTAL ? (p[k]||0)/p.TOTAL : 0}))
+    .sort((a,b)=>b.share-a.share);
+}
+
+async function fetchGeoJSON() {
+  const urls = [
+    'https://data.cityofnewyork.us/resource/gthc-hcne.geojson?$limit=5000',
+    'https://data.cityofnewyork.us/api/geospatial/gthc-hcne?method=export&format=GeoJSON'
+  ];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data && data.features && data.features.length) return data.features;
+    } catch(e) {}
+  }
+  throw new Error('Could not load NYC Borough Boundaries GeoJSON.');
+}
+async function fetchIncomeData() {
+  const countyToBoro = {'005':'Bronx','047':'Brooklyn','061':'Manhattan','081':'Queens','085':'Staten Island'};
+  const attempts = [
+    {year:'2024 ACS 5-Year', url:'https://api.census.gov/data/2024/acs/acs5?get=NAME,B19013_001E&for=county:*&in=state:36'},
+    {year:'2023 ACS 5-Year', url:'https://api.census.gov/data/2023/acs/acs5?get=NAME,B19013_001E&for=county:*&in=state:36'}
+  ];
+  for (const attempt of attempts) {
+    try {
+      const res = await fetch(attempt.url);
+      if (!res.ok) continue;
+      const rows = await res.json();
+      const header = rows[0], incomeIdx = header.indexOf('B19013_001E'), countyIdx = header.indexOf('county');
+      const out = {};
+      for (const row of rows.slice(1)) {
+        const boro = countyToBoro[row[countyIdx]], income = Number(row[incomeIdx]);
+        if (boro && income > 0) out[boro] = income;
+      }
+      if (BOROUGHS.every(b=>out[b])) { incomeData = out; incomeSourceYear = attempt.year; return; }
+    } catch(e) {}
+  }
+  incomeData = {'Bronx':50500,'Brooklyn':81200,'Manhattan':106400,'Queens':82600,'Staten Island':96100};
+  incomeSourceYear = 'fallback ACS-style estimates';
+}
+async function fetchRaceData() {
+  const countyToBoro = {'005':'Bronx','047':'Brooklyn','061':'Manhattan','081':'Queens','085':'Staten Island'};
+  const vars = ['B03002_001E','B03002_003E','B03002_004E','B03002_005E','B03002_006E','B03002_007E','B03002_008E','B03002_009E','B03002_012E'];
+  const attempts = [
+    {year:'2024 ACS 5-Year', url:`https://api.census.gov/data/2024/acs/acs5?get=NAME,${vars.join(',')}&for=county:*&in=state:36`},
+    {year:'2023 ACS 5-Year', url:`https://api.census.gov/data/2023/acs/acs5?get=NAME,${vars.join(',')}&for=county:*&in=state:36`}
+  ];
+  for (const attempt of attempts) {
+    try {
+      const res = await fetch(attempt.url);
+      if (!res.ok) continue;
+      const rows = await res.json();
+      const header = rows[0], idx = Object.fromEntries(header.map((h,i)=>[h,i])), countyIdx = header.indexOf('county');
+      const out = {};
+      for (const row of rows.slice(1)) {
+        const boro = countyToBoro[row[countyIdx]];
+        if (!boro) continue;
+        const total = Number(row[idx['B03002_001E']] || 0);
+        const groups = {
+          'White alone, not Hispanic': Number(row[idx['B03002_003E']] || 0),
+          'Black or African American alone, not Hispanic': Number(row[idx['B03002_004E']] || 0),
+          'American Indian/Alaska Native alone, not Hispanic': Number(row[idx['B03002_005E']] || 0),
+          'Asian alone, not Hispanic': Number(row[idx['B03002_006E']] || 0),
+          'Native Hawaiian/Pacific Islander alone, not Hispanic': Number(row[idx['B03002_007E']] || 0),
+          'Some other race alone, not Hispanic': Number(row[idx['B03002_008E']] || 0),
+          'Two or more races, not Hispanic': Number(row[idx['B03002_009E']] || 0),
+          'Hispanic or Latino': Number(row[idx['B03002_012E']] || 0)
+        };
+        out[boro] = {};
+        for (const [group,count] of Object.entries(groups)) out[boro][group] = {count, share: total ? count/total : 0};
+      }
+      if (BOROUGHS.every(b=>out[b])) { raceData = out; raceSourceYear = attempt.year; return; }
+    } catch(e) {}
+  }
+  raceData = {};
+  const fallback = {
+    'Bronx': {'Hispanic or Latino':0.56,'Black or African American alone, not Hispanic':0.29,'White alone, not Hispanic':0.08,'Asian alone, not Hispanic':0.04,'Two or more races, not Hispanic':0.02,'Some other race alone, not Hispanic':0.005,'American Indian/Alaska Native alone, not Hispanic':0.003,'Native Hawaiian/Pacific Islander alone, not Hispanic':0.001},
+    'Brooklyn': {'White alone, not Hispanic':0.36,'Black or African American alone, not Hispanic':0.27,'Hispanic or Latino':0.19,'Asian alone, not Hispanic':0.13,'Two or more races, not Hispanic':0.04,'Some other race alone, not Hispanic':0.005,'American Indian/Alaska Native alone, not Hispanic':0.003,'Native Hawaiian/Pacific Islander alone, not Hispanic':0.001},
+    'Manhattan': {'White alone, not Hispanic':0.46,'Hispanic or Latino':0.25,'Asian alone, not Hispanic':0.14,'Black or African American alone, not Hispanic':0.12,'Two or more races, not Hispanic':0.03,'Some other race alone, not Hispanic':0.004,'American Indian/Alaska Native alone, not Hispanic':0.002,'Native Hawaiian/Pacific Islander alone, not Hispanic':0.001},
+    'Queens': {'Asian alone, not Hispanic':0.28,'Hispanic or Latino':0.28,'White alone, not Hispanic':0.24,'Black or African American alone, not Hispanic':0.16,'Two or more races, not Hispanic':0.03,'Some other race alone, not Hispanic':0.005,'American Indian/Alaska Native alone, not Hispanic':0.003,'Native Hawaiian/Pacific Islander alone, not Hispanic':0.001},
+    'Staten Island': {'White alone, not Hispanic':0.55,'Hispanic or Latino':0.19,'Black or African American alone, not Hispanic':0.10,'Asian alone, not Hispanic':0.11,'Two or more races, not Hispanic':0.04,'Some other race alone, not Hispanic':0.005,'American Indian/Alaska Native alone, not Hispanic':0.003,'Native Hawaiian/Pacific Islander alone, not Hispanic':0.001}
+  };
+  const pop = {'Bronx':1470000,'Brooklyn':2700000,'Manhattan':1650000,'Queens':2400000,'Staten Island':500000};
+  for (const [boro,groups] of Object.entries(fallback)) {
+    raceData[boro] = {};
+    for (const [group,share] of Object.entries(groups)) raceData[boro][group] = {share,count:Math.round(pop[boro]*share)};
+  }
+  raceSourceYear = 'fallback ACS-style estimates';
+}
+async function fetchEducationData() {
+  const countyToBoro = {'005':'Bronx','047':'Brooklyn','061':'Manhattan','081':'Queens','085':'Staten Island'};
+  const vars = ['B15003_001E','B15003_002E','B15003_003E','B15003_004E','B15003_005E','B15003_006E','B15003_007E','B15003_008E','B15003_009E','B15003_010E','B15003_011E','B15003_012E','B15003_013E','B15003_014E','B15003_015E','B15003_016E','B15003_017E','B15003_018E','B15003_019E','B15003_020E','B15003_021E','B15003_022E','B15003_023E','B15003_024E','B15003_025E'];
+  const attempts = [
+    {year:'2024 ACS 5-Year', url:`https://api.census.gov/data/2024/acs/acs5?get=NAME,${vars.join(',')}&for=county:*&in=state:36`},
+    {year:'2023 ACS 5-Year', url:`https://api.census.gov/data/2023/acs/acs5?get=NAME,${vars.join(',')}&for=county:*&in=state:36`}
+  ];
+  for (const attempt of attempts) {
+    try {
+      const res = await fetch(attempt.url);
+      if (!res.ok) continue;
+      const rows = await res.json();
+      const header = rows[0], idx = Object.fromEntries(header.map((h,i)=>[h,i])), countyIdx = header.indexOf('county');
+      const out = {};
+      for (const row of rows.slice(1)) {
+        const boro = countyToBoro[row[countyIdx]];
+        if (!boro) continue;
+        const total = Number(row[idx['B15003_001E']] || 0);
+        const lessThanHS = ['B15003_002E','B15003_003E','B15003_004E','B15003_005E','B15003_006E','B15003_007E','B15003_008E','B15003_009E','B15003_010E','B15003_011E','B15003_012E','B15003_013E','B15003_014E','B15003_015E','B15003_016E'].reduce((s,v)=>s+Number(row[idx[v]]||0),0);
+        const hsHigher = ['B15003_017E','B15003_018E','B15003_019E','B15003_020E','B15003_021E','B15003_022E','B15003_023E','B15003_024E','B15003_025E'].reduce((s,v)=>s+Number(row[idx[v]]||0),0);
+        const someCollegeAssoc = ['B15003_019E','B15003_020E','B15003_021E'].reduce((s,v)=>s+Number(row[idx[v]]||0),0);
+        const bachelors = Number(row[idx['B15003_022E']] || 0);
+        const gradProfessional = ['B15003_023E','B15003_024E','B15003_025E'].reduce((s,v)=>s+Number(row[idx[v]]||0),0);
+        const groups = {
+          "Bachelor's degree or higher": bachelors + gradProfessional,
+          'Graduate or professional degree': gradProfessional,
+          'High school graduate or higher': hsHigher,
+          'Less than high school diploma': lessThanHS,
+          "Some college or associate's degree": someCollegeAssoc,
+          "Bachelor's degree": bachelors
+        };
+        out[boro] = {};
+        for (const [group,count] of Object.entries(groups)) out[boro][group] = {count, share: total ? count/total : 0};
+      }
+      if (BOROUGHS.every(b=>out[b])) { educationData = out; educationSourceYear = attempt.year; return; }
+    } catch(e) {}
+  }
+  const shares = {
+    'Bronx': {"Bachelor's degree or higher":0.23,'Graduate or professional degree':0.09,'High school graduate or higher':0.75,'Less than high school diploma':0.25,"Some college or associate's degree":0.25,"Bachelor's degree":0.14},
+    'Brooklyn': {"Bachelor's degree or higher":0.43,'Graduate or professional degree':0.18,'High school graduate or higher':0.84,'Less than high school diploma':0.16,"Some college or associate's degree":0.23,"Bachelor's degree":0.25},
+    'Manhattan': {"Bachelor's degree or higher":0.65,'Graduate or professional degree':0.33,'High school graduate or higher':0.90,'Less than high school diploma':0.10,"Some college or associate's degree":0.15,"Bachelor's degree":0.32},
+    'Queens': {"Bachelor's degree or higher":0.36,'Graduate or professional degree':0.14,'High school graduate or higher':0.82,'Less than high school diploma':0.18,"Some college or associate's degree":0.24,"Bachelor's degree":0.22},
+    'Staten Island': {"Bachelor's degree or higher":0.35,'Graduate or professional degree':0.13,'High school graduate or higher':0.89,'Less than high school diploma':0.11,"Some college or associate's degree":0.28,"Bachelor's degree":0.22}
+  };
+  const adultPop = {'Bronx':980000,'Brooklyn':1880000,'Manhattan':1280000,'Queens':1700000,'Staten Island':350000};
+  educationData = {};
+  for (const [boro,groups] of Object.entries(shares)) {
+    educationData[boro] = {};
+    for (const [group,share] of Object.entries(groups)) educationData[boro][group] = {share,count:Math.round(adultPop[boro]*share)};
+  }
+  educationSourceYear = 'fallback ACS-style estimates';
+}
+
+function draw() {
+  if (!geoFeatures.length) return;
+  svg.selectAll('*').remove();
+
+  const featuresWithNames = geoFeatures.map(f => ({feature:f, borough:getBoroName(f)})).filter(d => BOROUGHS.includes(d.borough));
+  if (!featuresWithNames.length) {
+    statusEl.className = 'status error';
+    statusEl.textContent = 'Borough boundaries loaded, but borough names could not be identified.';
+    return;
+  }
+
+  projection.fitSize([width - 30, height - 30], {type:'FeatureCollection', features:featuresWithNames.map(d=>d.feature)});
+  svg.append('rect').attr('width',width).attr('height',height).attr('fill','#cde7f7');
+
+  const cScale = colorScale();
+
+  svg.selectAll('path.borough-path')
+    .data(featuresWithNames)
+    .join('path')
+    .attr('class','borough-path')
+    .attr('d', d => path(d.feature))
+    .attr('fill', d => mapType === 'choropleth' ? cScale(getMetric(d.borough).value) : '#d9e5ef')
+    .attr('opacity', 0.96)
+    .on('mouseenter', function(event,d){ d3.select(this).attr('opacity',0.78); showTooltip(event,d.borough); })
+    .on('mousemove', event => moveTooltip(event))
+    .on('mouseleave', function(){ d3.select(this).attr('opacity',0.96); hideTooltip(); })
+    .on('click', (event,d) => showTooltip(event,d.borough));
+
+  const centroids = new Map();
+  featuresWithNames.forEach(d => centroids.set(d.borough, path.centroid(d.feature)));
+  const labelOffsets = {'Manhattan':[-10,0],'Bronx':[10,-6],'Brooklyn':[-6,8],'Queens':[28,12],'Staten Island':[-6,8]};
+
+  if (mapType === 'bubble') {
+    const rScale = radiusScale();
+    BOROUGHS.forEach(b => {
+      const c = centroids.get(b);
+      if (!c) return;
+      const [dx,dy] = labelOffsets[b] || [0,0];
+      svg.append('circle')
+        .attr('class','bubble')
+        .attr('fill', mode === 'politics' ? PARTY_COLORS[selectedParty] : null)
+        .attr('stroke', mode === 'politics' ? PARTY_COLORS[selectedParty] : null)
+        .attr('cx', c[0]+dx)
+        .attr('cy', c[1]+dy)
+        .attr('r', rScale(getMetric(b).value))
+        .on('mouseenter', event => showTooltip(event,b))
+        .on('mousemove', event => moveTooltip(event))
+        .on('mouseleave', hideTooltip)
+        .on('click', event => showTooltip(event,b));
+    });
+  }
+
+  BOROUGHS.forEach(b => {
+    const c = centroids.get(b);
+    if (!c) return;
+    const [dx,dy] = labelOffsets[b] || [0,0];
+    svg.append('text')
+      .attr('class','borough-label')
+      .attr('x', c[0]+dx)
+      .attr('y', c[1]+dy+4)
+      .attr('text-anchor','middle')
+      .text(b === 'Staten Island' ? 'Staten Is.' : b);
+  });
+
+  updateLegend();
+  updateTable();
+}
+
+function showTooltip(event, borough) {
+  const m = getMetric(borough);
+  const parties = getPartyRows(borough).map(d => `<div class="tt-row"><span><span class="party-dot" style="background:${PARTY_COLORS[d.party] || '#999'}"></span>${escapeHtml(d.label)}</span><span class="tt-val">${pct(d.share)} (${fmt(d.count)})</span></div>`).join('');
+  const largestRace = getLargestRaceGroup(borough);
+  const raceSelected = raceData[borough]?.[selectedRaceGroup] || {count:0, share:0};
+  const eduSelected = educationData[borough]?.[selectedEducationGroup] || {count:0, share:0};
+  const raceList = getRaceRows(borough).slice(0,5).map(d => `<div class="tt-row"><span>${escapeHtml(d.group)}</span><span class="tt-val">${pct(d.share)}</span></div>`).join('');
+  const eduList = getEducationRows(borough).map(d => `<div class="tt-row"><span>${escapeHtml(d.group)}</span><span class="tt-val">${pct(d.share)}</span></div>`).join('');
+
+  const layerLabel = mode === 'politics' ? PARTY_LABELS[selectedParty] + ' enrollment share'
+    : mode === 'income' ? 'Median household income'
+    : mode === 'race' ? selectedRaceGroup
+    : selectedEducationGroup;
+
+  const layerValue = mode === 'politics' ? `${pct(m.partyShare)} (${fmt(m.partyCount)} voters)`
+    : mode === 'income' ? fmtMoney(m.income)
+    : mode === 'race' ? `${pct(m.raceShare)} (${fmt(m.raceCount)} residents)`
+    : `${pct(m.educationShare)} (${fmt(m.educationCount)} adults age 25+)`;
+
+  tooltip.innerHTML = `
+    <div class="tt-title">${escapeHtml(borough)}</div>
+    <div class="tt-sub">${escapeHtml(politicsSource)} • ${escapeHtml(incomeSourceYear)} income • ${escapeHtml(raceSourceYear)} race/ethnicity • ${escapeHtml(educationSourceYear)} education</div>
+    <div class="tt-row"><span>${escapeHtml(layerLabel)}</span><span class="tt-val">${layerValue}</span></div>
+    <div class="tt-row"><span>Dominant enrollment group</span><span class="tt-val">${escapeHtml(PARTY_LABELS[m.dominantParty] || m.dominantParty)} (${pct(m.dominantPartyShare)})</span></div>
+    <div class="tt-row"><span>Total enrolled voters</span><span class="tt-val">${fmt(m.totalEnrollment)}</span></div>
+    <div class="tt-row"><span>Median household income</span><span class="tt-val">${fmtMoney(m.income)}</span></div>
+    <div class="tt-row"><span>Income tier</span><span class="tt-val">${escapeHtml(incomeTier(m.income))}</span></div>
+    <div class="tt-row"><span>Largest race/ethnicity group</span><span class="tt-val">${escapeHtml(largestRace.group)} (${pct(largestRace.share)})</span></div>
+    <div class="tt-row"><span>Selected race/ethnicity</span><span class="tt-val">${pct(raceSelected.share)} (${fmt(raceSelected.count)})</span></div>
+    <div class="tt-row"><span>Selected education</span><span class="tt-val">${pct(eduSelected.share)} (${fmt(eduSelected.count)})</span></div>
+    <div style="margin-top:10px;font-weight:800;color:#1F4E79;">Party enrollment</div>
+    ${parties}
+    <div style="margin-top:10px;font-weight:800;color:#9a5b00;">Education breakdown</div>
+    ${eduList}
+    <div style="margin-top:10px;font-weight:800;color:#5b2a86;">Race/ethnicity breakdown</div>
+    ${raceList}
+  `;
+  tooltip.style.display = 'block';
+  moveTooltip(event);
+}
+function moveTooltip(event) {
+  const pad = 16;
+  let x = event.clientX + pad, y = event.clientY + pad;
+  const rect = tooltip.getBoundingClientRect();
+  if (x + rect.width > window.innerWidth - 8) x = event.clientX - rect.width - pad;
+  if (y + rect.height > window.innerHeight - 8) y = event.clientY - rect.height - pad;
+  tooltip.style.left = Math.max(8,x) + 'px';
+  tooltip.style.top = Math.max(8,y) + 'px';
+}
+function hideTooltip() { tooltip.style.display = 'none'; }
+
+function updateLegend() {
+  const label = mode === 'politics' ? `${PARTY_LABELS[selectedParty]} enrollment share`
+    : mode === 'income' ? 'Median household income'
+    : mode === 'race' ? `Share of ${selectedRaceGroup}`
+    : `Share of ${selectedEducationGroup}`;
+
+  const affiliationKey = mode === 'politics'
+    ? `<span style="margin-left:10px;"><span class="party-dot" style="background:${PARTY_COLORS[selectedParty]}"></span>${escapeHtml(PARTY_LABELS[selectedParty])} color scale</span>`
+    : '';
+
+  if (mapType === 'bubble') {
+    legendEl.innerHTML = `<span>Bubble size = ${escapeHtml(label)}</span>${affiliationKey}`;
+    return;
+  }
+
+  const palette = getPalette();
+  let html = '<span>Low</span>';
+  palette.forEach(c => html += `<span class="legend-swatch" style="background:${c}"></span>`);
+  html += `<span>High</span><span style="margin-left:10px;">${escapeHtml(label)}</span>${affiliationKey}`;
+  legendEl.innerHTML = html;
+}
+
+function updateTable() {
+  const rows = getAllMetrics().sort((a,b) => b.value - a.value);
+  document.getElementById('panelTitle').textContent =
+    mode === 'politics' ? `${PARTY_LABELS[selectedParty]} enrollment by borough`
+    : mode === 'income' ? 'Median household income by borough'
+    : mode === 'race' ? `${selectedRaceGroup} by borough`
+    : `${selectedEducationGroup} by borough`;
+  document.getElementById('valueHeader').textContent = mode === 'income' ? 'Income' : 'Share';
+
+  rankBody.innerHTML = rows.map(d => `
+    <tr>
+      <td><strong>${escapeHtml(d.borough)}</strong></td>
+      <td>${
+        mode === 'politics'
+        ? `<span class="pill pill-politics" style="background:${PARTY_COLORS[d.party] || '#1F4E79'}22;color:${PARTY_COLORS[d.party] || '#1F4E79'};"><span class="party-dot" style="background:${PARTY_COLORS[d.party] || '#1F4E79'}"></span>${escapeHtml(PARTY_LABELS[d.party])}</span><br><span style="font-size:11px;color:#64748b;">Dominant: <span class="party-dot" style="background:${PARTY_COLORS[d.dominantParty] || '#999'}"></span>${escapeHtml(PARTY_LABELS[d.dominantParty] || d.dominantParty)} • Income: ${fmtMoney(d.income)}</span>`
+        : mode === 'income'
+        ? `<span class="pill pill-income">${escapeHtml(incomeTier(d.income))}</span><br><span style="font-size:11px;color:#64748b;">Dominant party: ${escapeHtml(PARTY_LABELS[d.dominantParty] || d.dominantParty)} • Largest group: ${escapeHtml(getLargestRaceGroup(d.borough).group)}</span>`
+        : mode === 'race'
+        ? `<span class="pill pill-race">${escapeHtml(selectedRaceGroup)}</span><br><span style="font-size:11px;color:#64748b;">Dominant party: ${escapeHtml(PARTY_LABELS[d.dominantParty] || d.dominantParty)} • Income: ${fmtMoney(d.income)}</span>`
+        : `<span class="pill pill-edu">${escapeHtml(selectedEducationGroup)}</span><br><span style="font-size:11px;color:#64748b;">Dominant party: ${escapeHtml(PARTY_LABELS[d.dominantParty] || d.dominantParty)} • Income: ${fmtMoney(d.income)}</span>`
+      }</td>
+      <td><strong>${
+        mode === 'income' ? fmtMoney(d.income)
+        : mode === 'politics' ? pct(d.partyShare)
+        : mode === 'race' ? pct(d.raceShare)
+        : pct(d.educationShare)
+      }</strong></td>
+    </tr>
+  `).join('');
+}
+
+function setMode(nextMode) {
+  mode = nextMode;
+  document.getElementById('btn-politics').classList.toggle('active', mode === 'politics');
+  document.getElementById('btn-income').classList.toggle('active', mode === 'income');
+  document.getElementById('btn-race').classList.toggle('active', mode === 'race');
+  document.getElementById('btn-education').classList.toggle('active', mode === 'education');
+  partySelect.disabled = mode !== 'politics';
+  raceSelect.disabled = mode !== 'race';
+  educationSelect.disabled = mode !== 'education';
+  draw();
+}
+function setMapType(nextType) {
+  mapType = nextType;
+  document.getElementById('btn-choro').classList.toggle('active', mapType === 'choropleth');
+  document.getElementById('btn-bubble').classList.toggle('active', mapType === 'bubble');
+  draw();
+}
+function setParty(party) { selectedParty = party; draw(); }
+function setRaceGroup(group) { selectedRaceGroup = group; draw(); }
+function setEducationGroup(group) { selectedEducationGroup = group; draw(); }
+
+async function init() {
+  try {
+    statusEl.className = 'status';
+    statusEl.textContent = 'Loading NYC borough boundaries, voter enrollment, income, race/ethnicity, and education data…';
+    geoFeatures = await fetchGeoJSON();
+    await Promise.all([fetchPoliticsData(), fetchIncomeData(), fetchRaceData(), fetchEducationData()]);
+    partySelect.value = selectedParty;
+    raceSelect.value = selectedRaceGroup;
+    educationSelect.value = selectedEducationGroup;
+
+    statusEl.className = 'status ok';
+    statusEl.textContent = `Loaded successfully. Political data source: ${politicsSource}. Demographic data loaded from ${incomeSourceYear}, ${raceSourceYear}, and ${educationSourceYear}.`;
+    draw();
+  } catch (err) {
+    console.error(err);
+    statusEl.className = 'status error';
+    statusEl.innerHTML = `<strong>Data failed to load.</strong> ${escapeHtml(err.message)} Open this file in Chrome or Edge with internet access.`;
+    rankBody.innerHTML = '<tr><td colspan="3">No data loaded.</td></tr>';
+  }
+}
+init();
+</script>
+</body>
+</html>
