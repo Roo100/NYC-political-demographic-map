@@ -1,0 +1,39 @@
+name: Refresh verified voter enrollment
+on:
+  schedule:
+    - cron: '57 10 * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/refresh_enrollment.py
+      - .github/workflows/refresh-enrollment.yml
+permissions:
+  contents: write
+  pages: write
+concurrency:
+  group: refresh-enrollment
+  cancel-in-progress: false
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate official county enrollment and status totals
+        run: python scripts/refresh_enrollment.py
+      - name: Publish verified counts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/enrollment_latest.json data/enrollment_latest.csv
+          if ! git diff --cached --quiet; then
+            git commit -m 'Refresh verified county voter enrollment'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds"

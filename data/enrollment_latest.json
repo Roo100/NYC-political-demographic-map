@@ -1,0 +1,74 @@
+{
+  "as_of": "2026-02-20",
+  "status": "Total (active + inactive)",
+  "source": "New York State Board of Elections",
+  "source_url": "https://elections.ny.gov/voters-registered-county-02202026",
+  "catalog_urls": [
+    "https://elections.ny.gov/enrollment-county",
+    "https://vote.nyc/page/voter-enrollment-totals"
+  ],
+  "source_sha256": "0e0ac0ae86bb332c07fcf9d618b03512750ab714c463ef890236760de6ef9c57",
+  "checked_at": "2026-10-24T15:24:54+00:00",
+  "rows": [
+    {
+      "borough": "Bronx",
+      "county": "Bronx",
+      "county_geoid": "36005",
+      "DEM": 559518,
+      "REP": 58514,
+      "CON": 3759,
+      "WOR": 4117,
+      "OTH": 11046,
+      "BLANK": 156715,
+      "TOTAL": 793669
+    },
+    {
+      "borough": "Brooklyn",
+      "county": "Kings",
+      "county_geoid": "36047",
+      "DEM": 1172765,
+      "REP": 152734,
+      "CON": 5328,
+      "WOR": 9268,
+      "OTH": 22320,
+      "BLANK": 324140,
+      "TOTAL": 1686555
+    },
+    {
+      "borough": "Manhattan",
+      "county": "New York",
+      "county_geoid": "36061",
+      "DEM": 824309,
+      "REP": 89979,
+      "CON": 2428,
+      "WOR": 3902,
+      "OTH": 16755,
+      "BLANK": 236257,
+      "TOTAL": 1173630
+    },
+    {
+      "borough": "Queens",
+      "county": "Queens",
+      "county_geoid": "36081",
+      "DEM": 831757,
+      "REP": 164930,
+      "CON": 6165,
+      "WOR": 5301,
+      "OTH": 22309,
+      "BLANK": 335768,
+      "TOTAL": 1366230
+    },
+    {
+      "borough": "Staten Island",
+      "county": "Richmond",
+      "county_geoid": "36085",
+      "DEM": 130454,
+      "REP": 109043,
+      "CON": 4373,
+      "WOR": 1274,
+      "OTH": 8064,
+      "BLANK": 86054,
+      "TOTAL": 339262
+    }
+  ]
+}

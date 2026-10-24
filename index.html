@@ -6,7 +6,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>NYC Five Boroughs — Political Affiliation, Income, Education, and Race</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -247,6 +246,13 @@
     <a href="https://github.com/Roo100/NYC-political-demographic-map/blob/main/INCOME_SOURCES.md">Source and refresh notes</a>
     <button class="ctrl-btn" id="downloadIncome" onclick="downloadIncomeData()" disabled>Download verified income CSV</button>
   </div>
+  <div class="status" aria-live="polite">
+    <div id="enrollmentSourceText">Loading verified voter enrollment…</div>
+    <div id="enrollmentFreshness"></div>
+    <a id="enrollmentOfficialSource" href="https://elections.ny.gov/enrollment-county">Official enrollment source</a> ·
+    <a href="data/enrollment_latest.csv">Download verified enrollment CSV</a> ·
+    <a href="https://github.com/Roo100/NYC-political-demographic-map/blob/main/ENROLLMENT_SOURCES.md">Enrollment source notes</a>
+  </div>
   <div id="status" class="status">Loading NYC borough boundaries, voter enrollment, and Census demographic data…</div>
 
   <div class="ctrl-bar">
@@ -367,7 +373,7 @@ let selectedEducationGroup = "Bachelor's degree or higher";
 
 let geoFeatures = [];
 let politicsData = {};
-let politicsSource = '2026 State Enrollment Statistics';
+let politicsSource = 'Voter enrollment not loaded';
 let incomeData = {};
 let incomeSourceYear = 'Income not loaded';
 let raceData = {};
@@ -403,8 +409,8 @@ function getBoroName(feature) {
   }
   return null;
 }
-function fmt(n) { return Number(n || 0).toLocaleString(); }
-function pct(n) { return (Number(n || 0) * 100).toFixed(1) + '%'; }
+function fmt(n) { return Number.isFinite(n) ? n.toLocaleString() : 'Unavailable'; }
+function pct(n) { return Number.isFinite(n) ? (n * 100).toFixed(1) + '%' : 'Unavailable'; }
 function fmtMoney(n) { return Number.isFinite(n) ? '$' + Math.round(n).toLocaleString() : 'Unavailable'; }
 function incomeTier(n) {
   const val = Number(n || 0);
@@ -418,97 +424,56 @@ function escapeHtml(str) {
   return String(str ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#039;");
 }
 
-function fallbackPolitics() {
-  politicsSource = 'embedded fallback estimate; replace by live 2026 enrollment if workbook loads';
-  politicsData = {
-    'Bronx': {DEM:527000, REP:59000, CON:4200, WOR:7200, BLANK:236000, OTH:18000, TOTAL:851400},
-    'Brooklyn': {DEM:1065000, REP:145000, CON:12200, WOR:17800, BLANK:514000, OTH:38000, TOTAL:1792000},
-    'Manhattan': {DEM:746000, REP:101000, CON:6000, WOR:9800, BLANK:331000, OTH:24000, TOTAL:1217800},
-    'Queens': {DEM:836000, REP:188000, CON:14200, WOR:9100, BLANK:473000, OTH:33000, TOTAL:1553300},
-    'Staten Island': {DEM:150000, REP:126000, CON:8500, WOR:1400, BLANK:88000, OTH:6100, TOTAL:380000}
-  };
-}
-function parseNumber(v) {
-  if (v == null) return 0;
-  if (typeof v === 'number') return v;
-  return Number(String(v).replace(/,/g,'').trim()) || 0;
-}
-function normalizeHeader(x) {
-  return String(x || '').trim().toUpperCase().replace(/\s+/g,' ');
+let enrollmentSnapshot = null;
+function validateEnrollment(snapshot) {
+  const countyCodes = {'Bronx':'36005','Brooklyn':'36047','Manhattan':'36061','Queens':'36081','Staten Island':'36085'};
+  if (!snapshot || !/^\d{4}-\d{2}-\d{2}$/.test(snapshot.as_of) ||
+      snapshot.status !== 'Total (active + inactive)' || !Number.isFinite(Date.parse(snapshot.checked_at)) ||
+      !Array.isArray(snapshot.rows) || snapshot.rows.length !== 5 || new Set(snapshot.rows.map(r=>r.borough)).size !== 5 ||
+      snapshot.rows.some(r=>countyCodes[r.borough] !== r.county_geoid ||
+        ['DEM','REP','CON','WOR','OTH','BLANK','TOTAL'].some(k=>!Number.isInteger(r[k]) || r[k]<0) ||
+        r.TOTAL<=0 || ['DEM','REP','CON','WOR','OTH','BLANK'].reduce((sum,k)=>sum+r[k],0)!==r.TOTAL)) {
+    throw new Error('Enrollment snapshot failed county, count, or total validation');
+  }
+  return snapshot;
 }
 async function fetchPoliticsData() {
-  const url = 'https://www.vote.nyc/sites/default/files/pdf/vote/2026/county_feb26.xlsx';
   try {
-    const res = await fetch(url, {signal:AbortSignal.timeout(20000)});
-    if (!res.ok) throw new Error('Enrollment workbook HTTP ' + res.status);
-    const ab = await res.arrayBuffer();
-    const wb = XLSX.read(ab, { type: 'array' });
-    let found = {};
-
-    for (const sheetName of wb.SheetNames) {
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i].map(normalizeHeader);
-        const countyIdx = row.findIndex(x => x === 'COUNTY');
-        const statusIdx = row.findIndex(x => x === 'STATUS');
-        const demIdx = row.findIndex(x => x === 'DEM' || x === 'DEMOCRATIC');
-        const repIdx = row.findIndex(x => x === 'REP' || x === 'REPUBLICAN');
-        const conIdx = row.findIndex(x => x === 'CON' || x === 'CONSERVATIVE');
-        const worIdx = row.findIndex(x => x === 'WOR' || x === 'WORKING FAMILIES');
-        const othIdx = row.findIndex(x => x === 'OTH' || x === 'OTHER' || x === 'OTHER PARTIES');
-        const blankIdx = row.findIndex(x => x === 'BLANK' || x === 'NO PARTY' || x === 'UNAFFILIATED');
-        const totalIdx = row.findIndex(x => x === 'TOTAL');
-
-        if (countyIdx < 0 || demIdx < 0 || repIdx < 0 || totalIdx < 0) continue;
-
-        for (let j = i + 1; j < Math.min(rows.length, i + 120); j++) {
-          const r = rows[j];
-          const countyRaw = String(r[countyIdx] || '').trim();
-          const county = Object.keys(COUNTY_TO_BORO).find(c => countyRaw.toLowerCase() === c.toLowerCase());
-          if (!county) continue;
-
-          const status = statusIdx >= 0 ? String(r[statusIdx] || '').trim().toLowerCase() : 'total';
-          if (status && status !== 'total') continue;
-
-          const boro = COUNTY_TO_BORO[county];
-          const dem = parseNumber(r[demIdx]);
-          const rep = parseNumber(r[repIdx]);
-          const con = conIdx >= 0 ? parseNumber(r[conIdx]) : 0;
-          const wor = worIdx >= 0 ? parseNumber(r[worIdx]) : 0;
-          const blank = blankIdx >= 0 ? parseNumber(r[blankIdx]) : 0;
-          const total = parseNumber(r[totalIdx]);
-          let oth = othIdx >= 0 ? parseNumber(r[othIdx]) : 0;
-          if (!oth && total) oth = Math.max(0, total - dem - rep - con - wor - blank);
-          found[boro] = {DEM:dem, REP:rep, CON:con, WOR:wor, BLANK:blank, OTH:oth, TOTAL:total || (dem+rep+con+wor+blank+oth)};
-        }
-      }
-    }
-
-    if (BOROUGHS.every(b => found[b] && found[b].TOTAL)) {
-      politicsData = found;
-      politicsSource = '2026 State Enrollment Statistics workbook';
-      return;
-    }
-    throw new Error('Could not identify the NYC county total rows in workbook.');
-  } catch (err) {
-    console.warn('Using fallback politics data:', err);
-    fallbackPolitics();
+    const response = await fetch(`data/enrollment_latest.json?checked=${Date.now()}`, {cache:'no-store',signal:AbortSignal.timeout(20000)});
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const snapshot = validateEnrollment(await response.json());
+    enrollmentSnapshot = snapshot;
+    politicsData = Object.fromEntries(snapshot.rows.map(row=>[row.borough,row]));
+    const date = new Date(snapshot.as_of+'T12:00:00Z').toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric',timeZone:'UTC'});
+    politicsSource = `NYS Board of Elections, ${date}; total registrations (active + inactive)`;
+    document.getElementById('enrollmentSourceText').textContent = `Voter enrollment as of ${date}. Total registrations include active and inactive records. Largest voter enrollment group means the largest enrollment category, not a majority or an election result.`;
+    document.getElementById('enrollmentOfficialSource').href = snapshot.source_url;
+    const overdue = Date.now()-Date.parse(snapshot.checked_at)>3*24*60*60*1000;
+    document.getElementById('enrollmentFreshness').textContent = `${overdue?'Refresh overdue. Showing the last verified snapshot. ':''}Source checked ${new Date(snapshot.checked_at).toLocaleString('en-US',{timeZone:'America/New_York',timeZoneName:'short'})}. Automatic check: daily.`;
+    document.getElementById('enrollmentFreshness').style.color = overdue?'#8b1e1e':'';
+  } catch(error) {
+    politicsData = {};
+    politicsSource = 'Voter enrollment unavailable';
+    document.getElementById('enrollmentSourceText').textContent = 'Verified enrollment could not be loaded. Political counts and the largest enrollment group remain unavailable; no estimated counts are substituted.';
+    document.getElementById('enrollmentFreshness').textContent = 'Refresh the page to retry.';
   }
 }
+
 function getDominantParty(borough) {
   const p = politicsData[borough] || {};
-  const entries = ['DEM','REP','CON','WOR','BLANK','OTH'].map(k => [k, p[k] || 0]).sort((a,b) => b[1]-a[1]);
+  if (!Number.isFinite(p.TOTAL) || p.TOTAL<=0) return {party:null,count:null,share:NaN};
+  const entries = ['DEM','REP','CON','WOR','BLANK','OTH'].map(k => [k, p[k]]).sort((a,b) => b[1]-a[1]);
   const top = entries[0] || ['No data',0];
   return { party: top[0], count: top[1], share: p.TOTAL ? top[1] / p.TOTAL : 0 };
 }
 function getPoliticsMetric(borough) {
   const p = politicsData[borough] || {};
-  const count = p[selectedParty] || 0;
-  const total = p.TOTAL || 0;
+  const count = p[selectedParty] ?? null;
+  const total = p.TOTAL ?? null;
   const dominant = getDominantParty(borough);
   return {
-    borough, value: total ? count / total : 0,
-    party: selectedParty, partyCount: count, partyShare: total ? count / total : 0,
+    borough, value: total ? count / total : NaN,
+    party: selectedParty, partyCount: count, partyShare: total ? count / total : NaN,
     dominantParty: dominant.party, dominantPartyShare: dominant.share,
     totalEnrollment: total,
     income: incomeData[borough] ?? null,
@@ -576,7 +541,7 @@ function getEducationRows(borough) {
 function getPartyRows(borough) {
   const p = politicsData[borough] || {};
   return ['DEM','REP','CON','WOR','BLANK','OTH']
-    .map(k => ({party:k, label:PARTY_LABELS[k], count:p[k]||0, share:p.TOTAL ? (p[k]||0)/p.TOTAL : 0}))
+    .map(k => ({party:k, label:PARTY_LABELS[k], count:p[k]??null, share:p.TOTAL ? p[k]/p.TOTAL : NaN}))
     .sort((a,b)=>b.share-a.share);
 }
 
@@ -847,7 +812,7 @@ function showTooltip(event, borough) {
     <div class="tt-title">${escapeHtml(borough)}</div>
     <div class="tt-sub">${escapeHtml(politicsSource)} • ${escapeHtml(incomeSourceYear)} income • ${escapeHtml(raceSourceYear)} race/ethnicity • ${escapeHtml(educationSourceYear)} education</div>
     <div class="tt-row"><span>${escapeHtml(layerLabel)}</span><span class="tt-val">${layerValue}</span></div>
-    <div class="tt-row"><span>Dominant enrollment group</span><span class="tt-val">${escapeHtml(PARTY_LABELS[m.dominantParty] || m.dominantParty)} (${pct(m.dominantPartyShare)})</span></div>
+    <div class="tt-row"><span>Largest voter enrollment group</span><span class="tt-val">${escapeHtml(PARTY_LABELS[m.dominantParty] || 'Unavailable')} (${pct(m.dominantPartyShare)})</span></div>
     <div class="tt-row"><span>Total enrolled voters</span><span class="tt-val">${fmt(m.totalEnrollment)}</span></div>
     <div class="tt-row"><span>Median household income</span><span class="tt-val">${fmtMoney(m.income)}</span></div>
     <div class="tt-row"><span>Income 90% margin of error</span><span class="tt-val">${Number.isFinite(incomeDetails[borough]?.margin_of_error_90) ? '±' + fmtMoney(incomeDetails[borough].margin_of_error_90) : 'Unavailable'}</span></div>
@@ -887,7 +852,7 @@ function updateLegend() {
     ? `<span style="margin-left:10px;"><span class="party-dot" style="background:${PARTY_COLORS[selectedParty]}"></span>${escapeHtml(PARTY_LABELS[selectedParty])} color scale</span>`
     : '';
 
-  const missingKey = mode === 'income' ? '<span style="margin-left:8px">Gray: income unavailable. Bands are display thresholds, not official class categories.</span>' : '';
+  const missingKey = mode === 'income' ? '<span style="margin-left:8px">Gray: income unavailable. Bands are display thresholds, not official class categories.</span>' : mode === 'politics' ? '<span style="margin-left:8px">Gray: verified enrollment unavailable.</span>' : '';
   if (mapType === 'bubble') {
     legendEl.innerHTML = `<span>Bubble size = ${escapeHtml(label)}</span>${affiliationKey}${missingKey}`;
     return;
@@ -914,12 +879,12 @@ function updateTable() {
       <td><strong>${escapeHtml(d.borough)}</strong></td>
       <td>${
         mode === 'politics'
-        ? `<span class="pill pill-politics" style="background:${PARTY_COLORS[d.party] || '#1F4E79'}22;color:${PARTY_COLORS[d.party] || '#1F4E79'};"><span class="party-dot" style="background:${PARTY_COLORS[d.party] || '#1F4E79'}"></span>${escapeHtml(PARTY_LABELS[d.party])}</span><br><span style="font-size:11px;color:#64748b;">Dominant: <span class="party-dot" style="background:${PARTY_COLORS[d.dominantParty] || '#999'}"></span>${escapeHtml(PARTY_LABELS[d.dominantParty] || d.dominantParty)} • Income: ${fmtMoney(d.income)}</span>`
+        ? `<span class="pill pill-politics" style="background:${PARTY_COLORS[d.party] || '#1F4E79'}22;color:${PARTY_COLORS[d.party] || '#1F4E79'};"><span class="party-dot" style="background:${PARTY_COLORS[d.party] || '#1F4E79'}"></span>${escapeHtml(PARTY_LABELS[d.party])}</span><br><span style="font-size:11px;color:#64748b;">Largest enrollment group: <span class="party-dot" style="background:${PARTY_COLORS[d.dominantParty] || '#999'}"></span>${escapeHtml(PARTY_LABELS[d.dominantParty] || 'Unavailable')} • Income: ${fmtMoney(d.income)}</span>`
         : mode === 'income'
-        ? `<span class="pill pill-income">${escapeHtml(incomeTier(d.income))}</span><br><span style="font-size:11px;color:#64748b;">Dominant party: ${escapeHtml(PARTY_LABELS[d.dominantParty] || d.dominantParty)} • Largest group: ${escapeHtml(getLargestRaceGroup(d.borough).group)}</span>`
+        ? `<span class="pill pill-income">${escapeHtml(incomeTier(d.income))}</span><br><span style="font-size:11px;color:#64748b;">Largest enrollment group: ${escapeHtml(PARTY_LABELS[d.dominantParty] || 'Unavailable')} • Largest group: ${escapeHtml(getLargestRaceGroup(d.borough).group)}</span>`
         : mode === 'race'
-        ? `<span class="pill pill-race">${escapeHtml(selectedRaceGroup)}</span><br><span style="font-size:11px;color:#64748b;">Dominant party: ${escapeHtml(PARTY_LABELS[d.dominantParty] || d.dominantParty)} • Income: ${fmtMoney(d.income)}</span>`
-        : `<span class="pill pill-edu">${escapeHtml(selectedEducationGroup)}</span><br><span style="font-size:11px;color:#64748b;">Dominant party: ${escapeHtml(PARTY_LABELS[d.dominantParty] || d.dominantParty)} • Income: ${fmtMoney(d.income)}</span>`
+        ? `<span class="pill pill-race">${escapeHtml(selectedRaceGroup)}</span><br><span style="font-size:11px;color:#64748b;">Largest enrollment group: ${escapeHtml(PARTY_LABELS[d.dominantParty] || 'Unavailable')} • Income: ${fmtMoney(d.income)}</span>`
+        : `<span class="pill pill-edu">${escapeHtml(selectedEducationGroup)}</span><br><span style="font-size:11px;color:#64748b;">Largest enrollment group: ${escapeHtml(PARTY_LABELS[d.dominantParty] || 'Unavailable')} • Income: ${fmtMoney(d.income)}</span>`
       }</td>
       <td><strong>${
         mode === 'income' ? `${fmtMoney(d.income)}<br><span style="font-size:11px;color:#64748b">${Number.isFinite(incomeDetails[d.borough]?.margin_of_error_90) ? '±' + fmtMoney(incomeDetails[d.borough].margin_of_error_90) : 'MOE unavailable'}</span>`
@@ -977,3 +942,4 @@ init();
 </script>
 </body>
 </html>
+

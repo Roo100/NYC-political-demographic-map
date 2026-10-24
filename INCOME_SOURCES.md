@@ -34,6 +34,6 @@ The last validated snapshot stays available if the Census source is temporarily 
 
 ## Scope and reproduction
 
-The previous hard-coded income fallback has been removed. Voter enrollment, race/ethnicity and education retain their existing independent source and fallback behavior and are not certified by this income correction. Their source labels remain visible in the dashboard.
+The previous hard-coded income fallback has been removed. Voter enrollment is now separately verified and documented in ENROLLMENT_SOURCES.md. Race/ethnicity and education retain their existing independent source and fallback behavior. Their source labels remain visible in the dashboard.
 
 Run `python scripts/refresh_income.py` with Python 3.12 and network access. No third-party packages or API key are needed. Inspect workflow history and the snapshot's release_year, reference_period, dollar_year, checked_at, source_url and source_sha256 for provenance.
