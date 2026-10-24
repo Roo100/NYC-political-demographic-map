@@ -240,6 +240,13 @@
     Boroughs are matched to counties: Bronx, Kings/Brooklyn, New York/Manhattan, Queens, and Richmond/Staten Island.
   </p>
 
+  <div class="status" aria-live="polite">
+    <div id="incomeSourceText">Loading verified borough income…</div>
+    <div id="incomeFreshness"></div>
+    <a id="incomeOfficialSource" href="https://data.census.gov/">Official Census table</a> ·
+    <a href="https://github.com/Roo100/NYC-political-demographic-map/blob/main/INCOME_SOURCES.md">Source and refresh notes</a>
+    <button class="ctrl-btn" id="downloadIncome" onclick="downloadIncomeData()" disabled>Download verified income CSV</button>
+  </div>
   <div id="status" class="status">Loading NYC borough boundaries, voter enrollment, and Census demographic data…</div>
 
   <div class="ctrl-bar">
@@ -362,7 +369,7 @@ let geoFeatures = [];
 let politicsData = {};
 let politicsSource = '2026 State Enrollment Statistics';
 let incomeData = {};
-let incomeSourceYear = '2024 ACS 5-Year';
+let incomeSourceYear = 'Income not loaded';
 let raceData = {};
 let raceSourceYear = '2024 ACS 5-Year';
 let educationData = {};
@@ -398,14 +405,14 @@ function getBoroName(feature) {
 }
 function fmt(n) { return Number(n || 0).toLocaleString(); }
 function pct(n) { return (Number(n || 0) * 100).toFixed(1) + '%'; }
-function fmtMoney(n) { const val = Number(n || 0); return val ? '$' + val.toLocaleString() : 'No data'; }
+function fmtMoney(n) { return Number.isFinite(n) ? '$' + Math.round(n).toLocaleString() : 'Unavailable'; }
 function incomeTier(n) {
   const val = Number(n || 0);
   if (!val) return 'No income data';
-  if (val < 60000) return 'Lower income';
-  if (val < 85000) return 'Moderate income';
-  if (val < 110000) return 'Higher income';
-  return 'Highest income';
+  if (val < 60000) return 'Below $60,000';
+  if (val < 85000) return '$60,000–$84,999';
+  if (val < 110000) return '$85,000–$109,999';
+  return '$110,000 or more';
 }
 function escapeHtml(str) {
   return String(str ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#039;");
@@ -432,7 +439,7 @@ function normalizeHeader(x) {
 async function fetchPoliticsData() {
   const url = 'https://www.vote.nyc/sites/default/files/pdf/vote/2026/county_feb26.xlsx';
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, {signal:AbortSignal.timeout(20000)});
     if (!res.ok) throw new Error('Enrollment workbook HTTP ' + res.status);
     const ab = await res.arrayBuffer();
     const wb = XLSX.read(ab, { type: 'array' });
@@ -504,7 +511,7 @@ function getPoliticsMetric(borough) {
     party: selectedParty, partyCount: count, partyShare: total ? count / total : 0,
     dominantParty: dominant.party, dominantPartyShare: dominant.share,
     totalEnrollment: total,
-    income: incomeData[borough] || 0,
+    income: incomeData[borough] ?? null,
     raceShare: raceData[borough]?.[selectedRaceGroup]?.share || 0,
     raceCount: raceData[borough]?.[selectedRaceGroup]?.count || 0,
     educationShare: educationData[borough]?.[selectedEducationGroup]?.share || 0,
@@ -513,7 +520,7 @@ function getPoliticsMetric(borough) {
 }
 function getIncomeMetric(borough) {
   const m = getPoliticsMetric(borough);
-  m.value = m.income || 0;
+  m.value = Number.isFinite(m.income) ? m.income : NaN;
   return m;
 }
 function getRaceMetric(borough) {
@@ -542,16 +549,17 @@ function getPalette() {
   return DEFAULT_COLORS;
 }
 function colorScale() {
-  const vals = getAllMetrics().map(d => d.value);
+  const vals = getAllMetrics().map(d => d.value).filter(Number.isFinite);
   const max = d3.max(vals) || 1, min = d3.min(vals) || 0;
   const palette = getPalette();
-  if (max === min) return () => palette[3];
-  return d3.scaleQuantize().domain([min, max]).range(palette);
+  const scale = max === min ? () => palette[3] : d3.scaleQuantize().domain([min, max]).range(palette);
+  return value => Number.isFinite(value) ? scale(value) : '#d1d5db';
 }
 function radiusScale() {
-  const vals = getAllMetrics().map(d => d.value);
+  const vals = getAllMetrics().map(d => d.value).filter(Number.isFinite);
   const max = d3.max(vals) || 1;
-  return d3.scaleSqrt().domain([0, max]).range([6, 44]);
+  const scale = d3.scaleSqrt().domain([0, max]).range([6, 44]);
+  return value => Number.isFinite(value) ? scale(value) : 0;
 }
 function getLargestRaceGroup(borough) {
   const obj = raceData[borough] || {};
@@ -579,7 +587,7 @@ async function fetchGeoJSON() {
   ];
   for (const url of urls) {
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, {signal:AbortSignal.timeout(20000)});
       if (!res.ok) continue;
       const data = await res.json();
       if (data && data.features && data.features.length) return data.features;
@@ -587,29 +595,65 @@ async function fetchGeoJSON() {
   }
   throw new Error('Could not load NYC Borough Boundaries GeoJSON.');
 }
-async function fetchIncomeData() {
-  const countyToBoro = {'005':'Bronx','047':'Brooklyn','061':'Manhattan','081':'Queens','085':'Staten Island'};
-  const attempts = [
-    {year:'2024 ACS 5-Year', url:'https://api.census.gov/data/2024/acs/acs5?get=NAME,B19013_001E&for=county:*&in=state:36'},
-    {year:'2023 ACS 5-Year', url:'https://api.census.gov/data/2023/acs/acs5?get=NAME,B19013_001E&for=county:*&in=state:36'}
-  ];
-  for (const attempt of attempts) {
-    try {
-      const res = await fetch(attempt.url);
-      if (!res.ok) continue;
-      const rows = await res.json();
-      const header = rows[0], incomeIdx = header.indexOf('B19013_001E'), countyIdx = header.indexOf('county');
-      const out = {};
-      for (const row of rows.slice(1)) {
-        const boro = countyToBoro[row[countyIdx]], income = Number(row[incomeIdx]);
-        if (boro && income > 0) out[boro] = income;
-      }
-      if (BOROUGHS.every(b=>out[b])) { incomeData = out; incomeSourceYear = attempt.year; return; }
-    } catch(e) {}
+let incomeSnapshot = null;
+let incomeDetails = {};
+const INCOME_COUNTIES = {'36005':'Bronx','36047':'Brooklyn','36061':'Manhattan','36081':'Queens','36085':'Staten Island'};
+
+function validateIncomeSnapshot(snapshot) {
+  if (!snapshot || snapshot.table !== 'B19013' || snapshot.geographic_summary_level !== '050' ||
+      !Number.isInteger(snapshot.release_year) || snapshot.release_year < 2024 ||
+      snapshot.reference_period !== `${snapshot.release_year-4}–${snapshot.release_year}` ||
+      snapshot.dollar_year !== snapshot.release_year || !Number.isFinite(Date.parse(snapshot.checked_at)) ||
+      !Array.isArray(snapshot.rows) || snapshot.rows.length !== 5 ||
+      new Set(snapshot.rows.map(r=>r.county_geoid)).size !== 5 ||
+      snapshot.rows.some(r=>INCOME_COUNTIES[r.county_geoid] !== r.borough ||
+        r.census_geo_id !== '0500000US'+r.county_geoid ||
+        r.reference_period !== snapshot.reference_period || r.dollar_year !== snapshot.dollar_year ||
+        !Number.isFinite(r.median_household_income) || r.median_household_income <= 0 ||
+        !Number.isFinite(r.margin_of_error_90) || r.margin_of_error_90 < 0)) {
+    throw new Error('Income release, county codes, estimates, or margins of error failed validation');
   }
-  incomeData = {'Bronx':50500,'Brooklyn':81200,'Manhattan':106400,'Queens':82600,'Staten Island':96100};
-  incomeSourceYear = 'fallback ACS-style estimates';
+  return snapshot;
 }
+
+async function fetchIncomeData() {
+  try {
+    const response = await fetch(`data/income_latest.json?checked=${Date.now()}`, {cache:'no-store', signal:AbortSignal.timeout(20000)});
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const snapshot = validateIncomeSnapshot(await response.json());
+    incomeSnapshot = snapshot;
+    incomeData = Object.fromEntries(snapshot.rows.map(r=>[r.borough,r.median_household_income]));
+    incomeDetails = Object.fromEntries(snapshot.rows.map(r=>[r.borough,r]));
+    incomeSourceYear = `${snapshot.reference_period} ACS 5-year (${snapshot.dollar_year} dollars)`;
+    const checked = new Date(snapshot.checked_at);
+    const stale = Date.now()-checked.getTime() > 3*24*60*60*1000;
+    document.getElementById('incomeSourceText').textContent = `Median annual household income: ${incomeSourceYear}. U.S. Census Bureau, table B19013. Exact county-to-borough matches; 90% margins of error appear in the cards and download.`;
+    const link = document.getElementById('incomeOfficialSource');
+    link.href = snapshot.table_url;
+    document.getElementById('incomeFreshness').textContent = `${stale ? 'Refresh overdue. Showing the last validated dataset. ' : ''}Source checked ${checked.toLocaleString('en-US',{timeZone:'America/New_York',timeZoneName:'short'})}. Automatic check: daily. New ACS estimates are published annually.`;
+    document.getElementById('incomeFreshness').style.color = stale ? '#8b1e1e' : '';
+    document.getElementById('downloadIncome').disabled = false;
+  } catch(error) {
+    incomeSourceYear = 'Income unavailable';
+    incomeData = {};
+    incomeDetails = {};
+    document.getElementById('incomeSourceText').textContent = 'Income data could not be loaded or validated. Income values remain unavailable; no invented fallback is substituted.';
+    document.getElementById('incomeFreshness').textContent = 'Refresh the page to retry the income download.';
+    document.getElementById('downloadIncome').disabled = true;
+  }
+}
+
+function downloadIncomeData() {
+  if (!incomeSnapshot || !BOROUGHS.every(b=>Number.isFinite(incomeData[b]))) return;
+  const fields=['borough','county','county_geoid','census_geo_id','median_household_income','margin_of_error_90','reference_period','dollar_year','table','source_url','checked_at','source_sha256'];
+  const rows=incomeSnapshot.rows.map(r=>({...r,source_url:incomeSnapshot.source_url,checked_at:incomeSnapshot.checked_at,source_sha256:incomeSnapshot.source_sha256}));
+  const quote=v=>'"'+String(v??'').replaceAll('"','""')+'"';
+  const csv=[fields.join(','),...rows.map(r=>fields.map(f=>quote(r[f])).join(','))].join('\n');
+  const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  const link=document.createElement('a');link.href=url;link.download=`NYC_Borough_Income_ACS_${incomeSnapshot.release_year}.csv`;
+  document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);
+}
+
 async function fetchRaceData() {
   const countyToBoro = {'005':'Bronx','047':'Brooklyn','061':'Manhattan','081':'Queens','085':'Staten Island'};
   const vars = ['B03002_001E','B03002_003E','B03002_004E','B03002_005E','B03002_006E','B03002_007E','B03002_008E','B03002_009E','B03002_012E'];
@@ -619,7 +663,7 @@ async function fetchRaceData() {
   ];
   for (const attempt of attempts) {
     try {
-      const res = await fetch(attempt.url);
+      const res = await fetch(attempt.url, {signal:AbortSignal.timeout(20000)});
       if (!res.ok) continue;
       const rows = await res.json();
       const header = rows[0], idx = Object.fromEntries(header.map((h,i)=>[h,i])), countyIdx = header.indexOf('county');
@@ -668,7 +712,7 @@ async function fetchEducationData() {
   ];
   for (const attempt of attempts) {
     try {
-      const res = await fetch(attempt.url);
+      const res = await fetch(attempt.url, {signal:AbortSignal.timeout(20000)});
       if (!res.ok) continue;
       const rows = await res.json();
       const header = rows[0], idx = Object.fromEntries(header.map((h,i)=>[h,i])), countyIdx = header.indexOf('county');
@@ -790,7 +834,7 @@ function showTooltip(event, borough) {
   const eduList = getEducationRows(borough).map(d => `<div class="tt-row"><span>${escapeHtml(d.group)}</span><span class="tt-val">${pct(d.share)}</span></div>`).join('');
 
   const layerLabel = mode === 'politics' ? PARTY_LABELS[selectedParty] + ' enrollment share'
-    : mode === 'income' ? 'Median household income'
+    : mode === 'income' ? `Median household income (${incomeSourceYear})`
     : mode === 'race' ? selectedRaceGroup
     : selectedEducationGroup;
 
@@ -806,7 +850,9 @@ function showTooltip(event, borough) {
     <div class="tt-row"><span>Dominant enrollment group</span><span class="tt-val">${escapeHtml(PARTY_LABELS[m.dominantParty] || m.dominantParty)} (${pct(m.dominantPartyShare)})</span></div>
     <div class="tt-row"><span>Total enrolled voters</span><span class="tt-val">${fmt(m.totalEnrollment)}</span></div>
     <div class="tt-row"><span>Median household income</span><span class="tt-val">${fmtMoney(m.income)}</span></div>
-    <div class="tt-row"><span>Income tier</span><span class="tt-val">${escapeHtml(incomeTier(m.income))}</span></div>
+    <div class="tt-row"><span>Income 90% margin of error</span><span class="tt-val">${Number.isFinite(incomeDetails[borough]?.margin_of_error_90) ? '±' + fmtMoney(incomeDetails[borough].margin_of_error_90) : 'Unavailable'}</span></div>
+    <div class="tt-row"><span>County FIPS / geography</span><span class="tt-val">${escapeHtml(incomeDetails[borough]?.county_geoid || 'Unavailable')} · Borough/county</span></div>
+    <div class="tt-row"><span>Income display band</span><span class="tt-val">${escapeHtml(incomeTier(m.income))}</span></div>
     <div class="tt-row"><span>Largest race/ethnicity group</span><span class="tt-val">${escapeHtml(largestRace.group)} (${pct(largestRace.share)})</span></div>
     <div class="tt-row"><span>Selected race/ethnicity</span><span class="tt-val">${pct(raceSelected.share)} (${fmt(raceSelected.count)})</span></div>
     <div class="tt-row"><span>Selected education</span><span class="tt-val">${pct(eduSelected.share)} (${fmt(eduSelected.count)})</span></div>
@@ -833,7 +879,7 @@ function hideTooltip() { tooltip.style.display = 'none'; }
 
 function updateLegend() {
   const label = mode === 'politics' ? `${PARTY_LABELS[selectedParty]} enrollment share`
-    : mode === 'income' ? 'Median household income'
+    : mode === 'income' ? `Median household income (${incomeSourceYear})`
     : mode === 'race' ? `Share of ${selectedRaceGroup}`
     : `Share of ${selectedEducationGroup}`;
 
@@ -841,23 +887,24 @@ function updateLegend() {
     ? `<span style="margin-left:10px;"><span class="party-dot" style="background:${PARTY_COLORS[selectedParty]}"></span>${escapeHtml(PARTY_LABELS[selectedParty])} color scale</span>`
     : '';
 
+  const missingKey = mode === 'income' ? '<span style="margin-left:8px">Gray: income unavailable. Bands are display thresholds, not official class categories.</span>' : '';
   if (mapType === 'bubble') {
-    legendEl.innerHTML = `<span>Bubble size = ${escapeHtml(label)}</span>${affiliationKey}`;
+    legendEl.innerHTML = `<span>Bubble size = ${escapeHtml(label)}</span>${affiliationKey}${missingKey}`;
     return;
   }
 
   const palette = getPalette();
   let html = '<span>Low</span>';
   palette.forEach(c => html += `<span class="legend-swatch" style="background:${c}"></span>`);
-  html += `<span>High</span><span style="margin-left:10px;">${escapeHtml(label)}</span>${affiliationKey}`;
+  html += `<span>High</span><span style="margin-left:10px;">${escapeHtml(label)}</span>${affiliationKey}${missingKey}`;
   legendEl.innerHTML = html;
 }
 
 function updateTable() {
-  const rows = getAllMetrics().sort((a,b) => b.value - a.value);
+  const rows = getAllMetrics().sort((a,b) => (Number.isFinite(b.value) ? b.value : -Infinity) - (Number.isFinite(a.value) ? a.value : -Infinity));
   document.getElementById('panelTitle').textContent =
     mode === 'politics' ? `${PARTY_LABELS[selectedParty]} enrollment by borough`
-    : mode === 'income' ? 'Median household income by borough'
+    : mode === 'income' ? `Median household income by borough (${incomeSourceYear})`
     : mode === 'race' ? `${selectedRaceGroup} by borough`
     : `${selectedEducationGroup} by borough`;
   document.getElementById('valueHeader').textContent = mode === 'income' ? 'Income' : 'Share';
@@ -875,7 +922,7 @@ function updateTable() {
         : `<span class="pill pill-edu">${escapeHtml(selectedEducationGroup)}</span><br><span style="font-size:11px;color:#64748b;">Dominant party: ${escapeHtml(PARTY_LABELS[d.dominantParty] || d.dominantParty)} • Income: ${fmtMoney(d.income)}</span>`
       }</td>
       <td><strong>${
-        mode === 'income' ? fmtMoney(d.income)
+        mode === 'income' ? `${fmtMoney(d.income)}<br><span style="font-size:11px;color:#64748b">${Number.isFinite(incomeDetails[d.borough]?.margin_of_error_90) ? '±' + fmtMoney(incomeDetails[d.borough].margin_of_error_90) : 'MOE unavailable'}</span>`
         : mode === 'politics' ? pct(d.partyShare)
         : mode === 'race' ? pct(d.raceShare)
         : pct(d.educationShare)
@@ -910,13 +957,14 @@ async function init() {
     statusEl.className = 'status';
     statusEl.textContent = 'Loading NYC borough boundaries, voter enrollment, income, race/ethnicity, and education data…';
     geoFeatures = await fetchGeoJSON();
+    if (!BOROUGHS.every(b=>geoFeatures.some(f=>getBoroName(f)===b))) throw new Error('Boundary dataset does not cover all five boroughs');
     await Promise.all([fetchPoliticsData(), fetchIncomeData(), fetchRaceData(), fetchEducationData()]);
     partySelect.value = selectedParty;
     raceSelect.value = selectedRaceGroup;
     educationSelect.value = selectedEducationGroup;
 
     statusEl.className = 'status ok';
-    statusEl.textContent = `Loaded successfully. Political data source: ${politicsSource}. Demographic data loaded from ${incomeSourceYear}, ${raceSourceYear}, and ${educationSourceYear}.`;
+    statusEl.textContent = `Loaded map. Political data source: ${politicsSource}. Income: ${incomeSourceYear}. Race/ethnicity: ${raceSourceYear}. Education: ${educationSourceYear}.`;
     draw();
   } catch (err) {
     console.error(err);

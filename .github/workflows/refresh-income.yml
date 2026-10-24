@@ -1,0 +1,39 @@
+name: Refresh official borough income
+on:
+  schedule:
+    - cron: '37 10 * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/refresh_income.py
+      - .github/workflows/refresh-income.yml
+permissions:
+  contents: write
+  pages: write
+concurrency:
+  group: refresh-income
+  cancel-in-progress: false
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Discover latest ACS5 release and validate five county records
+        run: python scripts/refresh_income.py
+      - name: Save validated snapshot and rebuild GitHub Pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/income_latest.json data/income_latest.csv
+          if ! git diff --cached --quiet; then
+            git commit -m 'Refresh verified ACS borough income'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds"
