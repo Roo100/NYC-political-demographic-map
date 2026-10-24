@@ -2,13 +2,13 @@
   "as_of": "2026-02-20",
   "status": "Total (active + inactive)",
   "source": "New York State Board of Elections",
-  "source_url": "https://elections.ny.gov/voters-registered-county-02202026",
+  "source_url": "https://www.vote.nyc/sites/default/files/pdf/vote/2026/county_feb26.xlsx",
   "catalog_urls": [
     "https://elections.ny.gov/enrollment-county",
     "https://vote.nyc/page/voter-enrollment-totals"
   ],
   "source_sha256": "0e0ac0ae86bb332c07fcf9d618b03512750ab714c463ef890236760de6ef9c57",
-  "checked_at": "2026-10-24T15:24:54+00:00",
+  "checked_at": "2026-10-24T15:28:29+00:00",
   "rows": [
     {
       "borough": "Bronx",
