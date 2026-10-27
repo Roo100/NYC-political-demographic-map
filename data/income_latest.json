@@ -11,7 +11,7 @@
   "table_url": "https://data.census.gov/table/ACSDT5Y2024.B19013",
   "source_sha256": "b25a176b0e6c339b6f3a2a0d3d8446bf06f5f080b4395993ec9a8313efb1c229",
   "catalog_url": "https://www2.census.gov/programs-surveys/acs/summary_file/",
-  "checked_at": "2026-10-26T16:55:42+00:00",
+  "checked_at": "2026-10-27T15:58:58+00:00",
   "rows": [
     {
       "borough": "Bronx",
